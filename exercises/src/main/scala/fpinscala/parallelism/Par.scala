@@ -14,7 +14,7 @@ object Par {
 
   private case class UnitFuture[A](get: A) extends Future[A] {
     def isDone = true 
-    def get(timeout: Long, units: TimeUnit) = get 
+    def get(timeout: Long, units: TimeUnit) = get
     def isCancelled = false 
     def cancel(evenIfRunning: Boolean): Boolean = false 
   }
@@ -23,7 +23,7 @@ object Par {
     var result
     def isDone = a.isDone && b.isDone
     def get(timeout: Long, units: TimeUnit) = {
-      long start = System.nanoTime()
+      Long start = System.nanoTime()
       val av = a.get(timeoutInNanoSecs, TimeUnit.NANOSECONDS)
       val bv = b.get(timeoutInNanoSecs - System.nanoTime + start, TimeUnit.NANOSECONDS)
       f(av, bv)
