@@ -1,13 +1,13 @@
 package fpinscala.parallelism
 
-import java.util.concurrent.{Callable, CountDownLatch, ExecutorService}
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent._
 import language.implicitConversions
 
 object Nonblocking {
 
   trait Future[+A] {
     private[parallelism] def apply(k: A => Unit): Unit
+//    private[parallelism] def error(e: Exception => Unit): Unit
   }
 
   type Par[+A] = ExecutorService => Future[A]
@@ -17,6 +17,16 @@ object Nonblocking {
     def run[A](es: ExecutorService)(p: Par[A]): A = {
       val ref = new java.util.concurrent.atomic.AtomicReference[A] // A mutable, threadsafe reference, to use for storing the result
       val latch = new CountDownLatch(1) // A latch which, when decremented, implies that `ref` has the result
+      println("before "+latch.getCount())
+
+//      try {
+//        def recordFuture = p(es)
+//        recordFuture { a => ref.set(a)}
+//      } catch  {
+//        case e: Exception => println(s"exception $e")
+//      } finally {
+//        latch.countDown
+//      }
       p(es) { a => ref.set(a); latch.countDown } // Asynchronously set the result, and decrement the latch
       latch.await // Block until the `latch.countDown` is invoked asynchronously
       ref.get // Once we've passed the latch, we know `ref` has been set, and return its value
@@ -38,8 +48,17 @@ object Nonblocking {
     def fork[A](a: => Par[A]): Par[A] =
       es => new Future[A] {
         def apply(cb: A => Unit): Unit =
-          eval(es)(a(es)(cb))
+          eval(es)(a(es)(wrapCB(cb)))
       }
+
+    def wrapCB[A](cb: A => Unit): A => Unit = aa =>
+    {
+      try {
+        cb(aa)
+      } catch {
+        case e: Exception => println(s"exception $e")
+      }
+    }
 
     /**
      * Helper function for constructing `Par` values out of calls to non-blocking continuation-passing-style APIs.
@@ -170,5 +189,29 @@ object Nonblocking {
       def map2[B,C](b: Par[B])(f: (A,B) => C): Par[C] = Par.map2(p,b)(f)
       def zip[B](b: Par[B]): Par[(A,B)] = p.map2(b)((_,_))
     }
+  }
+}
+
+object TestException {
+  def main(args: Array[String]): Unit = {
+    def par = Nonblocking.Par.delay[Int]{
+      println("executing par before exception")
+      throw new RuntimeException("error")
+    }
+
+    def forkedPar = Nonblocking.Par.fork[Int](par)
+
+//    println(par(Executors.newFixedThreadPool(5)).apply(a => println(a)))
+
+    val pool = Executors.newFixedThreadPool(2)
+//    forkedPar(pool).apply(a => print(s"some text $a"))
+
+    val result = Nonblocking.Par.run[Int](pool)(forkedPar)
+
+    println(s"result $result")
+
+    pool.shutdown()
+
+
   }
 }
