@@ -56,7 +56,7 @@ object Nonblocking {
       try {
         cb(aa)
       } catch {
-        case e: Exception => println(s"exception $e")
+        case e: Exception => println(s"exception $e"); throw e
       }
     }
 
