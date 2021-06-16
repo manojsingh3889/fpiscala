@@ -88,6 +88,10 @@ object RNG {
       val (a, r2) = f(rng)
       g(a)(r2)
     }
+
+  def boolean(rng: RNG): (Boolean, RNG) = RNG.nonNegativeInt(rng) match {
+    case (i, r) => (i % 2 == 0, r)
+  }
 }
 
 case class State[S,+A](run: S => (A, S)) {
