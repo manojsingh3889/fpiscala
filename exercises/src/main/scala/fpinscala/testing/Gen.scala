@@ -79,10 +79,14 @@ object Gen {
     val ratio = g1._2/(g1._2 + g2._2)
     Gen.double.flatMap(p => if(p < ratio) g1._1 else g2._1)
   }
+
+  def listOf[A](g: Gen[A]): SGen[List[A]] = {
+    SGen(i => listOfN(i, g))
+  }
 }
 
 //trait Gen[A] {
-case class Gen[A](sample: State[RNG,A]) {
+case class Gen[+A](sample: State[RNG,A]) {
   def map[B](f: A => B): Gen[B] = {
     Gen(sample.map(f))
   }
@@ -94,12 +98,26 @@ case class Gen[A](sample: State[RNG,A]) {
   def listOfN(size: Gen[Int]): Gen[List[A]] = {
     size.flatMap(s => Gen(State.sequence(List.fill(s)(this.sample))))
   }
+
+  def unsized: SGen[A] = {
+    SGen(_ => this)
+  }
 }
 
-trait SGen[+A] {
+//trait SGen[+A] {
+//
+//}
 
+
+case class SGen[+A](forSize: Int => Gen[A]) {
+  def map[B](f: A => B): SGen[B] = {
+    SGen(i => forSize(i).map(f))
+  }
+
+  def flatMap[B](f: A => SGen[B]): SGen[B] = {
+    SGen(i => forSize(i).flatMap(a => f(a).forSize(i)))
+  }
 }
-
 
 object TestBoolean {
   def main(args: Array[String]): Unit = {
@@ -152,5 +170,18 @@ object testPropAnd {
     val prop1 = Prop.forAll(Gen.choose(1, 10))(_ => false)
     val prop2 = Prop.forAll(Gen.boolean)(_ => true)
     println(prop1.&&(prop2).run(10, RNG.Simple(9)))
+  }
+}
+
+object testListOf {
+  def main(args: Array[String]): Unit = {
+    println(Gen.listOf(Gen.choose(1, 10)).forSize.apply(10).sample.run(RNG.Simple(8)))
+//    println(Gen.unit(1).listOfN(Gen.unit(10)).sample.run(RNG.Simple(8)))
+//
+//    println(Gen.listOfN(10, Gen.choose(1, 10)).sample.run(RNG.Simple(9)))
+//    println(Gen.choose(1, 10).listOfN(Gen.unit(10)).sample.run(RNG.Simple(9)))
+//
+//    println(Gen.listOfN(10, Gen.boolean).sample.run(RNG.Simple(10)))
+//    println(Gen.boolean.listOfN(Gen.unit(10)).sample.run(RNG.Simple(10)))
   }
 }
