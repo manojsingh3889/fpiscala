@@ -22,25 +22,34 @@ case object Passed extends Result {
 case class Falsified(failure: FailedCase, successes: SuccessCount) extends Result {
   def isFalsified = true
 }
+case object Proved extends Result {
+  def isFalsified = false
+}
 
-case class Prop(run: (TestCases,RNG) => Result) {
+case class Prop(run: (MaxSize,TestCases,RNG) => Result) {
   def &&(p: Prop): Prop = Prop(
-    (n: TestCases, rng: RNG) => (this.run(n, rng), p.run(n, rng)) match {
-      case (Passed, Passed) => Passed
+    (maxSize: MaxSize, n: TestCases, rng: RNG) => (this.run(maxSize, n, rng), p.run(maxSize, n, rng)) match {
       case (Falsified(f1, s1), Falsified(f2, s2)) => Falsified(f1+f2, s1+s2)
-      case (Passed, f) => f
-      case (f, Passed) => f
+      case (Falsified(f1, s1), _) => Falsified(f1, s1)
+      case (_, Falsified(f1, s1)) => Falsified(f1, s1)
+      case (Passed, _) => Passed
+      case (_, Passed) => Passed
+      case (Proved, Proved) => Proved
     })
+
   def ||(p: Prop): Prop = Prop(
-    (n: TestCases, rng: RNG) => (this.run(n, rng), p.run(n, rng)) match {
+    (maxSize: MaxSize, n: TestCases, rng: RNG) => (this.run(maxSize, n, rng), p.run(maxSize, n, rng)) match {
       case (Falsified(f1, s1), Falsified(f2, s2)) => Falsified(f1+f2, s1+s2)
-      case (_, _) => Passed
+      case (Proved, _) => Proved
+      case (_, Proved) => Proved
+      case (Passed, Passed) => Passed
     })
 }
 
 object Prop {
   type FailedCase = String
   type SuccessCount = Int
+  type MaxSize = Int
   type TestCases = Int
 
   def forAll[A](as: Gen[A])(f: A => Boolean): Prop = Prop {
@@ -51,6 +60,19 @@ object Prop {
     }.find(_.isFalsified).getOrElse(Passed)
   }
 
+  def run(p: Prop,
+          maxSize: Int = 100,
+          testCases: Int = 100,
+          rng: RNG = RNG.Simple(System.currentTimeMillis)): Unit =
+    p.run(maxSize, testCases, rng) match {
+      case Falsified(msg, n) =>
+        println(s"! Falsified after $n passed tests:\n $msg")
+      case Passed =>
+        println(s"+ OK, passed $testCases tests.")
+      case Proved =>
+        println(s"+ OK, proved property.")
+    }
+
   def randomStream[A](g: Gen[A])(rng: RNG): Stream[A] =
     Stream.unfold(rng)(rng => Some(g.sample.run(rng)))
 
@@ -58,6 +80,9 @@ object Prop {
     s"test case: $s\n" +
       s"generated an exception: ${e.getMessage}\n" +
       s"stack trace:\n ${e.getStackTrace.mkString("\n")}"
+
+  def apply(f: (TestCases,RNG) => Result): Prop =
+    Prop { (_,n,rng) => f(n,rng) }
 }
 
 object Gen {
@@ -172,7 +197,7 @@ object testPropAnd {
   def main(args: Array[String]): Unit = {
     val prop1 = Prop.forAll(Gen.choose(1, 10))(_ => false)
     val prop2 = Prop.forAll(Gen.boolean)(_ => true)
-    println(prop1.&&(prop2).run(10, RNG.Simple(9)))
+    println(prop1.&&(prop2).run(10, 10, RNG.Simple(9)))
   }
 }
 
@@ -194,7 +219,7 @@ object testSingletonListProp {
   def main(args: Array[String]): Unit = {
     println(Prop.forAll(
       Gen.listOf(Gen.choose(1, 10)).forSize(1)
-    )(list => list.sorted == list).run(1, RNG.Simple(8)))
+    )(list => list.sorted == list).run(1, 1, RNG.Simple(8)))
   }
 }
 
@@ -202,6 +227,6 @@ object testListMinMaxProp {
   def main(args: Array[String]): Unit = {
     println(Prop.forAll(
       Gen.listOf(Gen.choose(1, 10)).forSize(3)
-    )(list => list.sorted.last == list.max && list.sorted.head == list.min).run(10, RNG.Simple(8)))
+    )(list => list.sorted.last == list.max && list.sorted.head == list.min).run(10, 10, RNG.Simple(8)))
   }
 }
