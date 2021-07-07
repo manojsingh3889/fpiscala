@@ -83,6 +83,9 @@ object Gen {
   def listOf[A](g: Gen[A]): SGen[List[A]] = {
     SGen(i => listOfN(i, g))
   }
+
+  def listOf1[A](g: Gen[A]): SGen[List[A]] =
+    SGen(n => listOfN(n max 1, g))
 }
 
 //trait Gen[A] {
@@ -176,6 +179,7 @@ object testPropAnd {
 object testListOf {
   def main(args: Array[String]): Unit = {
     println(Gen.listOf(Gen.choose(1, 10)).forSize.apply(10).sample.run(RNG.Simple(8)))
+    println(Gen.listOf1(Gen.choose(1, 10)).forSize(0).sample.run(RNG.Simple(18)))
 //    println(Gen.unit(1).listOfN(Gen.unit(10)).sample.run(RNG.Simple(8)))
 //
 //    println(Gen.listOfN(10, Gen.choose(1, 10)).sample.run(RNG.Simple(9)))
@@ -183,5 +187,21 @@ object testListOf {
 //
 //    println(Gen.listOfN(10, Gen.boolean).sample.run(RNG.Simple(10)))
 //    println(Gen.boolean.listOfN(Gen.unit(10)).sample.run(RNG.Simple(10)))
+  }
+}
+
+object testSingletonListProp {
+  def main(args: Array[String]): Unit = {
+    println(Prop.forAll(
+      Gen.listOf(Gen.choose(1, 10)).forSize(1)
+    )(list => list.sorted == list).run(1, RNG.Simple(8)))
+  }
+}
+
+object testListMinMaxProp {
+  def main(args: Array[String]): Unit = {
+    println(Prop.forAll(
+      Gen.listOf(Gen.choose(1, 10)).forSize(3)
+    )(list => list.sorted.last == list.max && list.sorted.head == list.min).run(10, RNG.Simple(8)))
   }
 }
