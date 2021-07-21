@@ -1,12 +1,13 @@
 package fpinscala.testing
 
 import fpinscala.laziness.Stream
-import fpinscala.state._
-import fpinscala.parallelism._
 import fpinscala.parallelism.Par.Par
-import Gen._
-import Prop._
-import java.util.concurrent.{Executors,ExecutorService}
+import fpinscala.parallelism._
+import fpinscala.state._
+import fpinscala.testing.Gen.S
+import fpinscala.testing.Prop._
+
+import java.util.concurrent.Executors
 
 /*
 The library developed in this chapter goes through several iterations. This file is just the
@@ -83,6 +84,16 @@ object Prop {
 
   def apply(f: (TestCases,RNG) => Result): Prop =
     Prop { (_,n,rng) => f(n,rng) }
+
+  def check(p: => Boolean): Prop = Prop { (_, _, _) =>
+    if (p) Passed else Falsified("()", 0)
+  }
+
+  def forAllPar[A](g: Gen[A])(f: A => Par[Boolean]): Prop =
+    forAll(S.map2(g)((_,_))) { case (s,a) => f(a)(s).get }
+
+  def checkPar(p: Par[Boolean]): Prop =
+    forAllPar(Gen.unit(()))(_ => p)
 }
 
 object Gen {
@@ -111,6 +122,15 @@ object Gen {
 
   def listOf1[A](g: Gen[A]): SGen[List[A]] =
     SGen(n => listOfN(n max 1, g))
+
+  val pint = Gen.choose(0,10) map (Par.unit(_))
+  val pint2: Gen[Par[Int]] = choose(-100,100).listOfN(choose(0,20)).map(l =>
+    l.foldLeft(Par.unit(0))((p,i) =>
+      Par.fork { Par.map2(p, Par.unit(i))(_ + _) }))
+
+  val S = weighted(
+    choose(1,4).map(Executors.newFixedThreadPool) -> .75,
+    unit(Executors.newCachedThreadPool) -> .25)
 }
 
 //trait Gen[A] {
@@ -118,6 +138,9 @@ case class Gen[+A](sample: State[RNG,A]) {
   def map[B](f: A => B): Gen[B] = {
     Gen(sample.map(f))
   }
+
+  def map2[B,C](g: Gen[B])(f: (A,B) => C): Gen[C] =
+    Gen(sample.map2(g.sample)(f))
 
   def flatMap[B](f: A => Gen[B]): Gen[B] = {
     Gen(sample.flatMap(a => f(a).sample))
@@ -228,5 +251,35 @@ object testListMinMaxProp {
     println(Prop.forAll(
       Gen.listOf(Gen.choose(1, 10)).forSize(3)
     )(list => list.sorted.last == list.max && list.sorted.head == list.min).run(10, 10, RNG.Simple(8)))
+  }
+}
+
+object testForkProp {
+  def main(args: Array[String]): Unit = {
+    val prop = Prop.forAllPar(Gen.pint2)(par => Par.equal(Par.fork(par), par))
+
+    println(prop.run(10, 5, RNG.Simple(8)))
+  }
+}
+
+object testTakeWhileProp {
+  def main(args: Array[String]): Unit = {
+    val properties: List[List[Int] => Boolean] = List(
+      (l: List[Int]) => l.takeWhile(i => i >= 5) == l.dropWhile(i => i < 5),
+      (l: List[Int]) => l.takeWhile(_ => true) == l.dropWhile(_ => false),
+      (l: List[Int]) => l.takeWhile(_ => true) == l,
+      (l: List[Int]) => l.takeWhile(_ => false) == List(),
+      (l: List[Int]) => {
+        val function: Int => Boolean = i => i >= 5
+        l.takeWhile(function) ::: l.dropWhile(function) == l
+      }
+    )
+
+    for (i <- properties.indices) {
+      val prop = Prop.forAll(
+        Gen.listOf(Gen.choose(1, 10)).forSize(3)
+      )(properties(i))
+      println(s"Prop $i: ${prop.run(10, 5, RNG.Simple(8))}")
+    }
   }
 }
